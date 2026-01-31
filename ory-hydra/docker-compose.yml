@@ -1,0 +1,64 @@
+version: '3.7'
+
+services:
+  hydra-migrate:
+    image: oryd/hydra:v25.4.0
+    restart: on-failure
+    networks:
+      - hydra-network
+    command:
+      migrate sql -e --yes
+    environment:
+      - DSN=postgres://${POSTGRES_USER:?error}:${POSTGRES_PASSWORD:?error}@postgres:${POSTGRES_PORT:?error}/${POSTGRES_DB:?error}?sslmode=disable&max_conns=20&max_idle_conns=4
+    depends_on:
+      - postgres
+
+  hydra:
+    image: oryd/hydra:v25.4.0
+    restart: unless-stopped
+    networks:
+      - hydra-network
+    ports:
+      - "4444:4444" # Public port
+      - "4445:4445" # Admin port
+    command:
+      serve all --dev
+    environment:
+      # https://www.ory.sh/hydra/docs/reference/configuration
+      # https://github.com/ory/hydra/blob/aeecfe1c8f/test/e2e/docker-compose.yml      
+      - URLS_LOGIN=http://localhost:8000/authentication/login # Sets the login endpoint of the User Login & Consent flow.
+      - URLS_CONSENT=http://localhost:8000/authentication/consent # Sets the consent endpoint of the User Login & Consent flow.
+
+      - SECRETS_SYSTEM=**secret**
+
+      # set to Hydra public domain
+      - URLS_SELF_PUBLIC=http://localhost:4444 # to public endpoint
+      - URLS_SELF_ISSUER=http://localhost:4444 # to public endpoint
+      - DSN=postgres://${POSTGRES_USER:?error}:${POSTGRES_PASSWORD:?error}@postgres:${POSTGRES_PORT:?error}/${POSTGRES_DB:?error}?sslmode=disable&max_conns=20&max_idle_conns=4
+      - LOG_LEVEL=debug
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:14-alpine
+    restart: unless-stopped
+    networks:
+      - hydra-network
+    environment:      
+      - POSTGRES_PORT
+      - POSTGRES_DB
+      - POSTGRES_USER
+      - POSTGRES_PASSWORD
+      - PGDATA=/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    volumes:
+      - ./data:/var/lib/postgresql/data
+
+networks:
+  hydra-network:
+    name: hydra-network
